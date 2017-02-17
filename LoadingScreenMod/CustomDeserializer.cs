@@ -34,118 +34,133 @@ namespace LoadingScreenModTest
         {
             // Props and trees in buildings and parks.
             if (t == typeof(BuildingInfo.Prop))
-            {
-                PropInfo pi = Get<PropInfo>(r.ReadString()); // old name format (without package name) is possible
-                TreeInfo ti = Get<TreeInfo>(r.ReadString()); // old name format (without package name) is possible
-
-                if (instance.report && UsedAssets.instance.GotAnyContainer())
-                {
-                    if (pi != null)
-                    {
-                        string n = pi.gameObject.name;
-
-                        if (!string.IsNullOrEmpty(n) && n.IndexOf('.') >= 0)
-                            UsedAssets.instance.IndirectProps.Add(n);
-                    }
-
-                    if (ti != null)
-                    {
-                        string n = ti.gameObject.name;
-
-                        if (!string.IsNullOrEmpty(n) && n.IndexOf('.') >= 0)
-                            UsedAssets.instance.IndirectTrees.Add(n);
-                    }
-                }
-
-                return new BuildingInfo.Prop
-                {
-                    m_prop = pi,
-                    m_tree = ti,
-                    m_position = r.ReadVector3(),
-                    m_angle = r.ReadSingle(),
-                    m_probability = r.ReadInt32(),
-                    m_fixedHeight = r.ReadBoolean()
-                };
-            }
+                return DeserializePropOrTree(p, r);
 
             if (t == typeof(Package.Asset))
                 return p.FindByChecksum(r.ReadString());
 
             // Prop variations in props.
             if (t == typeof(PropInfo.Variation))
-            {
-                string name = r.ReadString();
-                string fullName = p.packageName + "." + name;
-                PropInfo pi = null;
+                return DeserializePropVariation(p, r);
 
-                if (fullName == AssetLoader.instance.Current)
-                    Util.DebugPrint("Warning:", fullName, "wants to be a prop variation for itself");
-                else
-                    pi = Get<PropInfo>(p, fullName, name, false);
-
-                return new PropInfo.Variation
-                {
-                    m_prop = pi,
-                    m_probability = r.ReadInt32()
-                };
-            }
-
-            // Tree variations in trees.
+            // Tree variations in props.
             if (t == typeof(TreeInfo.Variation))
-            {
-                string name = r.ReadString();
-                string fullName = p.packageName + "." + name;
-                TreeInfo ti = null;
-
-                if (fullName == AssetLoader.instance.Current)
-                    Util.DebugPrint("Warning:", fullName, "wants to be a tree variation for itself");
-                else
-                    ti = Get<TreeInfo>(p, fullName, name, false);
-
-                return new TreeInfo.Variation
-                {
-                    m_tree = ti,
-                    m_probability = r.ReadInt32()
-                };
-            }
+                return DeserializePropVariation(p, r);
 
             // It seems that trailers are listed in the save game so this is not necessary. Better to be safe however
             // because a missing trailer reference is fatal for the simulation thread.
             if (t == typeof(VehicleInfo.VehicleTrailer))
-            {
-                string name = r.ReadString();
-                string fullName = p.packageName + "." + name;
-                VehicleInfo vi = Get<VehicleInfo>(p, fullName, name, false);
-
-                VehicleInfo.VehicleTrailer trailer;
-                trailer.m_info = vi;
-                trailer.m_probability = r.ReadInt32();
-                trailer.m_invertProbability = r.ReadInt32();
-                return trailer;
-            }
+                return DeserializeVehicleTrailer(p, r);
 
             // Sub-buildings in buildings.
             if (t == typeof(BuildingInfo.SubInfo))
-            {
-                string name = r.ReadString();
-                string fullName = p.packageName + "." + name;
-                BuildingInfo bi = null;
-
-                if (fullName == AssetLoader.instance.Current || name == AssetLoader.instance.Current)
-                    Util.DebugPrint("Warning:", fullName, "wants to be a sub-building for itself");
-                else
-                    bi = Get<BuildingInfo>(p, fullName, name, true);
-
-                BuildingInfo.SubInfo subInfo = new BuildingInfo.SubInfo();
-                subInfo.m_buildingInfo = bi;
-                subInfo.m_position = r.ReadVector3();
-                subInfo.m_angle = r.ReadSingle();
-                subInfo.m_fixedHeight = r.ReadBoolean();
-                return subInfo;
-            }
+                return DeserializeSubInfo(p, r);
 
             return PackageHelper.CustomDeserialize(p, t, r);
         }
+
+
+        static BuildingInfo.Prop DeserializePropOrTree(Package p, PackageReader r)
+        {
+            PropInfo pi = Get<PropInfo>(r.ReadString()); // old name format (without package name) is possible
+            TreeInfo ti = Get<TreeInfo>(r.ReadString()); // old name format (without package name) is possible
+
+            if (instance.report && UsedAssets.instance.GotAnyContainer())
+            {
+                if (pi != null)
+                {
+                    string n = pi.gameObject.name;
+
+                    if (!string.IsNullOrEmpty(n) && n.IndexOf('.') >= 0)
+                        UsedAssets.instance.IndirectProps.Add(n);
+                }
+
+                if (ti != null)
+                {
+                    string n = ti.gameObject.name;
+
+                    if (!string.IsNullOrEmpty(n) && n.IndexOf('.') >= 0)
+                        UsedAssets.instance.IndirectTrees.Add(n);
+                }
+            }
+
+            return new BuildingInfo.Prop {
+                m_prop = pi,
+                m_tree = ti,
+                m_position = r.ReadVector3(),
+                m_angle = r.ReadSingle(),
+                m_probability = r.ReadInt32(),
+                m_fixedHeight = r.ReadBoolean()
+            };
+        }
+
+        static PropInfo.Variation DeserializePropVariation(Package p, PackageReader r)
+        {
+            string name = r.ReadString();
+            string fullName = p.packageName + "." + name;
+            PropInfo pi = null;
+
+            if (fullName == AssetLoader.instance.Current)
+                Util.DebugPrint("Warning:", fullName, "wants to be a prop variation for itself");
+            else
+                pi = Get<PropInfo>(p, fullName, name, false);
+
+            return new PropInfo.Variation {
+                m_prop = pi,
+                m_probability = r.ReadInt32()
+            };
+        }
+
+        static TreeInfo.Variation DeserializeTreeVariation(Package p, PackageReader r)
+        {
+            string name = r.ReadString();
+            string fullName = p.packageName + "." + name;
+            TreeInfo ti = null;
+
+            if (fullName == AssetLoader.instance.Current)
+                Util.DebugPrint("Warning:", fullName, "wants to be a tree variation for itself");
+            else
+                ti = Get<TreeInfo>(p, fullName, name, false);
+
+            return new TreeInfo.Variation {
+                m_tree = ti,
+                m_probability = r.ReadInt32()
+            };
+        }
+
+        static VehicleInfo.VehicleTrailer DeserializeVehicleTrailer(Package p, PackageReader r)
+        {
+            string name = r.ReadString();
+            string fullName = p.packageName + "." + name;
+            VehicleInfo vi = Get<VehicleInfo>(p, fullName, name, false);
+
+            VehicleInfo.VehicleTrailer trailer;
+            trailer.m_info = vi;
+            trailer.m_probability = r.ReadInt32();
+            trailer.m_invertProbability = r.ReadInt32();
+            return trailer;
+        }
+
+        static BuildingInfo.SubInfo DeserializeSubInfo(Package p, PackageReader r)
+        {
+            string name = r.ReadString();
+            string fullName = p.packageName + "." + name;
+            BuildingInfo bi = null;
+
+            if (fullName == AssetLoader.instance.Current || name == AssetLoader.instance.Current)
+                Util.DebugPrint("Warning:", fullName, "wants to be a sub-building for itself");
+            else
+                bi = Get<BuildingInfo>(p, fullName, name, true);
+
+            BuildingInfo.SubInfo subInfo = new BuildingInfo.SubInfo();
+            subInfo.m_buildingInfo = bi;
+            subInfo.m_position = r.ReadVector3();
+            subInfo.m_angle = r.ReadSingle();
+            subInfo.m_fixedHeight = r.ReadBoolean();
+            return subInfo;
+        }
+
+
 
         // Works with (fullName = asset name), too.
         static T Get<T>(string fullName) where T : PrefabInfo
