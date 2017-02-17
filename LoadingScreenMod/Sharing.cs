@@ -49,55 +49,77 @@ namespace LoadingScreenModTest
             }
         }
 
-        void LoadPackage(Package package, int index)
+        void LoadPackage( Package package, int index )
         {
-            lock (mutex)
+            PreprocessPackageData( package );
+            LoadPackageContent( package );
+            PostprocessPackageData( index );
+        }
+
+        void PreprocessPackageData( Package package )
+        {
+            lock ( mutex )
             {
                 int total = data.Count, matCount = 0;
                 int materialLimit = Mathf.Min(materialMax, dataMax - total - 20);
 
-                foreach (Package.Asset asset in package)
+                foreach ( Package.Asset asset in package )
                 {
                     string name = asset.name, checksum = asset.checksum;
                     Package.AssetType type = asset.type;
 
-                    if (!Supports(type) || name.EndsWith("_SteamPreview") || name.EndsWith("_Snapshot"))
-                        continue;
-
                     // Some workshop assets contain hundreds of materials. Probably by mistake.
-                    if (type == Package.AssetType.Texture && (texturesMain.ContainsKey(checksum) || texturesLod.ContainsKey(checksum)) ||
-                        type == Package.AssetType.StaticMesh && meshes.ContainsKey(checksum) ||
-                        type == Package.AssetType.Material && (materialsMain.ContainsKey(checksum) || materialsLod.ContainsKey(checksum) || ++matCount > materialLimit))
+                    if ( !isValidType( type, name ) || !isValidMaterial( type, checksum ) || ++matCount > materialLimit )
                         continue;
 
-                    if (data.ContainsKey(checksum))
-                        data.Reinsert(checksum);
-                    else if (total < dataMax)
+                    if ( data.ContainsKey( checksum ) )
+                        data.Reinsert( checksum );
+                    else if ( total < dataMax )
                     {
-                        loadList.Add(asset);
+                        loadList.Add( asset );
                         total++;
                     }
                 }
+
+                loadList.Sort( ( a, b ) => (int) ( a.offset - b.offset ) );
             }
+        }
 
-            loadList.Sort((a, b) => (int) (a.offset - b.offset));
+        bool isValidType( Package.AssetType type, String name )
+        {
+            return Supports( type ) || name.EndsWith( "_SteamPreview" ) || name.EndsWith( "_Snapshot" );
+        }
 
-            using (FileStream fs = File.OpenRead(package.packagePath))
-                for (int i = 0; i < loadList.Count; i++)
+        bool isValidMaterial( Package.AssetType type, String checksum )
+        {
+
+            return
+               type == Package.AssetType.StaticMesh && meshes.ContainsKey( checksum ) ||
+               type == Package.AssetType.Texture && ( texturesMain.ContainsKey( checksum ) || texturesLod.ContainsKey( checksum ) ) ||
+               type == Package.AssetType.Material && ( materialsMain.ContainsKey( checksum ) || materialsLod.ContainsKey( checksum ) );
+        }
+
+        void LoadPackageContent( Package package )
+        {
+            using ( FileStream fs = File.OpenRead( package.packagePath ) )
+                for ( int i = 0 ; i < loadList.Count ; i++ )
                 {
                     Package.Asset asset = loadList[i];
                     byte[] bytes = LoadAsset(fs, asset);
                     loadMap[asset.checksum] = bytes;
 
-                    if (asset.type == Package.AssetType.Texture || asset.type == Package.AssetType.StaticMesh)
-                        mtQueue.Enqueue(new KeyValuePair<Package.Asset, byte[]>(asset, bytes));
+                    if ( asset.type == Package.AssetType.Texture || asset.type == Package.AssetType.StaticMesh )
+                        mtQueue.Enqueue( new KeyValuePair<Package.Asset, byte[]>( asset, bytes ) );
                 }
+        }
 
-            lock (mutex)
+        void PostprocessPackageData( int index )
+        {
+            lock ( mutex )
             {
-                foreach (var kvp in loadMap)
-                    if (!data.ContainsKey(kvp.Key)) // this check is necessary
-                        data.Add(kvp.Key, new KeyValuePair<int, object>(index, kvp.Value));
+                foreach ( var kvp in loadMap )
+                    if ( !data.ContainsKey( kvp.Key ) ) // this check is necessary
+                        data.Add( kvp.Key, new KeyValuePair<int, object>( index, kvp.Value ) );
             }
         }
 
