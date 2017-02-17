@@ -70,20 +70,81 @@ namespace LoadingScreenModTest
 
         public IEnumerator LoadCustomContent()
         {
-            LoadingManager.instance.m_loadingProfilerMain.BeginLoading("LoadCustomContent");
-            LoadingManager.instance.m_loadingProfilerCustomContent.Reset();
-            LoadingManager.instance.m_loadingProfilerCustomAsset.Reset();
-            LoadingManager.instance.m_loadingProfilerCustomContent.BeginLoading("District Styles");
-            LoadingManager.instance.m_loadingProfilerCustomAsset.PauseLoading();
-            hasStarted = true;
+            FastList<DistrictStyleMetaData> districtStyleMetaDatas;
+            HashSet<string> styleBuildings;
+            List<DistrictStyle> districtStyles;
+            FastList<Package> districtStylePackages;
+            Package.Asset[] queue;
 
+            UIStartLoadingCustomContent();
+            UIStartLoadingCustomAsset();
+
+            PreprocessDistrictStyles(out districtStyleMetaDatas, out styleBuildings, out districtStyles, out districtStylePackages);
+
+            UIContinueLoadingCustomAsset();
+
+            if (Settings.settings.loadUsed)
+                UsedAssets.Create();
+
+            queue = CreateQueue(styleBuildings);
+
+            for (int i = 0 ; i < queue.Length ; i++)
+            {
+                LoadCustomAsset(i, queue[i]);
+
+                if (LoadCustomContentProgress(i, queue.Length))
+                {
+                    yield return null;
+                }
+            }
+
+            UIEndLoadingCustomContent();
+            PrintMem();
+            queue = null;
+            stack.Clear();
+            Report();
+
+            PostprocessDistrictStyles(districtStyleMetaDatas, districtStyles, districtStylePackages);
+
+            UIContinueLoadingCustomAsset();
+
+            UpdateTelemetry();
+
+            UIEndLoadingMain();
+        }
+
+        void UIStartLoadingMain()
+        {
+            LoadingManager.instance.m_loadingProfilerMain.BeginLoading("LoadCustomContent");
+            hasStarted = true;
+        }
+
+        void UIStartLoadingCustomAsset()
+        {
+            LoadingManager.instance.m_loadingProfilerCustomAsset.Reset();
+            LoadingManager.instance.m_loadingProfilerCustomAsset.PauseLoading();
+        }
+
+        void UIContinueLoadingCustomAsset()
+        {
+            LoadingManager.instance.m_loadingProfilerCustomAsset.ContinueLoading();
+        }
+
+        void UIEndLoadingMain()
+        {
+            LoadingManager.instance.m_loadingProfilerMain.EndLoading();
+            hasFinished = true;
+        }
+
+        void PreprocessDistrictStyles(out FastList<DistrictStyleMetaData> districtStyleMetaDatas, out HashSet<string> styleBuildings, out List<DistrictStyle> districtStyles, out FastList<Package> districtStylePackages)
+        {
             int i, j;
-            DistrictStyle districtStyle;
             DistrictStyleMetaData districtStyleMetaData;
-            List<DistrictStyle> districtStyles = new List<DistrictStyle>();
-            HashSet<string> styleBuildings = new HashSet<string>();
-            FastList<DistrictStyleMetaData> districtStyleMetaDatas = new FastList<DistrictStyleMetaData>();
-            FastList<Package> districtStylePackages = new FastList<Package>();
+            DistrictStyle districtStyle;
+            districtStyles = new List<DistrictStyle>();
+            styleBuildings = new HashSet<string>();
+            districtStyleMetaDatas = new FastList<DistrictStyleMetaData>();
+            districtStylePackages = new FastList<Package>();
             Package.Asset europeanStyles = PackageManager.FindAssetByName("System." + DistrictStyle.kEuropeanStyleName);
 
             if (europeanStyles != null && europeanStyles.isEnabled)
@@ -99,7 +160,7 @@ namespace LoadingScreenModTest
                 districtStyles.Add(districtStyle);
             }
 
-            foreach(Package.Asset asset in PackageManager.FilterAssets(UserAssetType.DistrictStyleMetaData))
+            foreach (Package.Asset asset in PackageManager.FilterAssets(UserAssetType.DistrictStyleMetaData))
             {
                 try
                 {
@@ -113,82 +174,37 @@ namespace LoadingScreenModTest
                             districtStylePackages.Add(asset.package);
 
                             if (districtStyleMetaData.assets != null)
-                                for (i = 0; i < districtStyleMetaData.assets.Length; i++)
+                                for (i = 0 ; i < districtStyleMetaData.assets.Length ; i++)
                                     styleBuildings.Add(districtStyleMetaData.assets[i]);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    CODebugBase<LogChannel>.Warn(LogChannel.Modding, string.Concat(new object[] {ex.GetType(), ": Loading custom district style failed[", asset, "]\n", ex.Message}));
+                    CODebugBase<LogChannel>.Warn(LogChannel.Modding, string.Concat(new object[] { ex.GetType(), ": Loading custom district style failed[", asset, "]\n", ex.Message }));
                 }
             }
 
-            LoadingManager.instance.m_loadingProfilerCustomAsset.ContinueLoading();
             LoadingManager.instance.m_loadingProfilerCustomContent.EndLoading();
+        }
 
-            if (Settings.settings.loadUsed)
-                UsedAssets.Create();
-
-            lastMillis = Profiling.Millis;
-            LoadingScreen.instance.DualSource.Add("Custom Assets");
-            LoadingManager.instance.m_loadingProfilerCustomContent.BeginLoading("Calculating asset load order");
-            Util.DebugPrint("GetLoadQueue", Profiling.Millis);
-            Package.Asset[] queue = GetLoadQueue(styleBuildings);
-            Util.DebugPrint("LoadQueue", queue.Length, Profiling.Millis);
-            LoadingManager.instance.m_loadingProfilerCustomContent.EndLoading();
-
-            LoadingManager.instance.m_loadingProfilerCustomContent.BeginLoading("Loading Custom Assets");
-            Sharing.instance.Start(queue);
-            beginMillis = Profiling.Millis;
-
-            for (i = 0; i < queue.Length; i++)
-            {
-                Package.Asset asset = queue[i];
-                Console.WriteLine(string.Concat("[LSMT] ", i, ": ", Profiling.Millis, " ", assetCount, " ", Sharing.instance.currentCount, " ",
-                    asset.fullName, Sharing.instance.ThreadStatus));
-
-                if ((i & 31) == 0)
-                    PrintMem();
-
-                Sharing.instance.WaitForWorkers();
-                Load(asset);
-                Sharing.instance.ManageLoadQueue(i);
-
-                if (Profiling.Millis - lastMillis > yieldInterval)
-                {
-                    lastMillis = Profiling.Millis;
-                    progress = 0.15f + (i + 1) * 0.7f / queue.Length;
-                    LoadingScreen.instance.SetProgress(progress, progress, assetCount, assetCount - i - 1 + queue.Length, beginMillis, lastMillis);
-                    yield return null;
-                }
-            }
-
-            lastMillis = Profiling.Millis;
-            LoadingScreen.instance.SetProgress(0.85f, 1f, assetCount, assetCount, beginMillis, lastMillis);
-            LoadingManager.instance.m_loadingProfilerCustomContent.EndLoading();
-            Util.DebugPrint("Custom assets loaded in", lastMillis - beginMillis);
-            PrintMem();
-            queue = null;
-            stack.Clear();
-            Report();
-
+        void PostprocessDistrictStyles(FastList<DistrictStyleMetaData> districtStyleMetaDatas, List<DistrictStyle> districtStyles, FastList<Package> districtStylePackages)
+        {
             LoadingManager.instance.m_loadingProfilerCustomContent.BeginLoading("Finalizing District Styles");
-            LoadingManager.instance.m_loadingProfilerCustomAsset.PauseLoading();
 
-            for (i = 0; i < districtStyleMetaDatas.m_size; i++)
+            for (int i = 0 ; i < districtStyleMetaDatas.m_size ; i++)
             {
                 try
                 {
-                    districtStyleMetaData = districtStyleMetaDatas.m_buffer[i];
-                    districtStyle = new DistrictStyle(districtStyleMetaData.name, false);
+                    DistrictStyleMetaData districtStyleMetaData = districtStyleMetaDatas.m_buffer[i];
+                    DistrictStyle districtStyle = new DistrictStyle( districtStyleMetaData.name, false);
 
                     if (districtStylePackages.m_buffer[i].GetPublishedFileID() != PublishedFileId.invalid)
                         districtStyle.PackageName = districtStylePackages.m_buffer[i].packageName;
 
                     if (districtStyleMetaData.assets != null)
                     {
-                        for(j = 0; j < districtStyleMetaData.assets.Length; j++)
+                        for (int j = 0 ; j < districtStyleMetaData.assets.Length ; j++)
                         {
                             BuildingInfo bi = CustomDeserializer.FindLoaded<BuildingInfo>(districtStyleMetaData.assets[j] + "_Data");
 
@@ -217,15 +233,82 @@ namespace LoadingScreenModTest
             if (Singleton<BuildingManager>.exists)
                 Singleton<BuildingManager>.instance.InitializeStyleArray(districtStyles.Count);
 
-            LoadingManager.instance.m_loadingProfilerCustomAsset.ContinueLoading();
             LoadingManager.instance.m_loadingProfilerCustomContent.EndLoading();
+        }
 
+        void UIStartQueue()
+        {
+            lastMillis = Profiling.Millis;
+            LoadingScreen.instance.DualSource.Add("Custom Assets");
+            LoadingManager.instance.m_loadingProfilerCustomContent.BeginLoading("Calculating asset load order");
+            Util.DebugPrint("GetLoadQueue", Profiling.Millis);
+        }
+
+        void UIEndQueue(Package.Asset[] queue)
+        {
+            Util.DebugPrint("LoadQueue", queue.Length, Profiling.Millis);
+            LoadingManager.instance.m_loadingProfilerCustomContent.EndLoading();
+            LoadingManager.instance.m_loadingProfilerCustomContent.BeginLoading("Loading Custom Assets");
+            Sharing.instance.Start(queue);
+            beginMillis = Profiling.Millis;
+
+        }
+
+        void UIStartLoadingCustomContent()
+        {
+            LoadingManager.instance.m_loadingProfilerCustomContent.Reset();
+            LoadingManager.instance.m_loadingProfilerCustomContent.BeginLoading("District Styles");
+        }
+
+        void UIEndLoadingCustomContent()
+        {
+            lastMillis = Profiling.Millis;
+            LoadingScreen.instance.SetProgress(0.85f, 1f, assetCount, assetCount, beginMillis, lastMillis);
+            LoadingManager.instance.m_loadingProfilerCustomContent.EndLoading();
+            Util.DebugPrint("Custom assets loaded in", lastMillis - beginMillis);
+        }
+
+
+        Package.Asset[] CreateQueue(HashSet<string> styleBuildings)
+        {
+            UIStartQueue();
+            Package.Asset[] queue = GetLoadQueue(styleBuildings);
+            UIEndQueue(queue);
+            return queue;
+        }
+
+        void UpdateTelemetry()
+        {
             if (Singleton<TelemetryManager>.exists)
                 Singleton<TelemetryManager>.instance.CustomContentInfo(buildingCount, propCount, treeCount, vehicleCount);
-
-            LoadingManager.instance.m_loadingProfilerMain.EndLoading();
-            hasFinished = true;
         }
+
+        void LoadCustomAsset(int i, Package.Asset asset)
+        {
+            Console.WriteLine(string.Concat("[LSMT] ", i, ": ", Profiling.Millis, " ", assetCount, " ", Sharing.instance.currentCount, " ",
+                asset.fullName, Sharing.instance.ThreadStatus));
+
+            if ((i & 31) == 0)
+                PrintMem();
+
+            Sharing.instance.WaitForWorkers();
+            Load(asset);
+            Sharing.instance.ManageLoadQueue(i);
+        }
+
+        bool LoadCustomContentProgress(int i, int length)
+        {
+            if (Profiling.Millis - lastMillis > yieldInterval)
+            {
+                lastMillis = Profiling.Millis;
+                progress = 0.15f + (i + 1) * 0.7f / length;
+                LoadingScreen.instance.SetProgress(progress, progress, assetCount, assetCount - i - 1 + length, beginMillis, lastMillis);
+                return true;
+            }
+
+            return false;
+        }
+
 
         internal void PrintMem()
         {
@@ -289,18 +372,22 @@ namespace LoadingScreenModTest
                     if (pi.m_lodObject != null)
                         pi.m_lodObject.SetActive(false);
 
-                    Initialize(pi);
-                    loadedProps.Add(fullName);
-                    propCount++;
+                    if (Initialize(pi))
+                    {
+                        loadedProps.Add(fullName);
+                        propCount++;
+                    }
                 }
 
                 TreeInfo ti = go.GetComponent<TreeInfo>();
 
                 if (ti != null)
                 {
-                    Initialize(ti);
-                    loadedTrees.Add(fullName);
-                    treeCount++;
+                    if (Initialize(ti))
+                    {
+                        loadedTrees.Add(fullName);
+                        treeCount++;
+                    }
                 }
 
                 BuildingInfo bi = go.GetComponent<BuildingInfo>();
@@ -311,12 +398,15 @@ namespace LoadingScreenModTest
                         bi.m_lodObject.SetActive(false);
 
                     bi.m_dontSpawnNormally = dontSpawnNormally.Remove(fullName);
-                    Initialize(bi);
-                    loadedBuildings.Add(fullName);
-                    buildingCount++;
 
-                    if (bi.GetAI() is IntersectionAI)
-                        loadedIntersections.Add(fullName);
+                    if (Initialize(bi))
+                    {
+                        loadedBuildings.Add(fullName);
+                        buildingCount++;
+
+                        if (bi.GetAI() is IntersectionAI)
+                            loadedIntersections.Add(fullName);
+                    }
                 }
 
                 VehicleInfo vi = go.GetComponent<VehicleInfo>();
@@ -326,9 +416,11 @@ namespace LoadingScreenModTest
                     if (vi.m_lodObject != null)
                         vi.m_lodObject.SetActive(false);
 
-                    Initialize(vi);
-                    loadedVehicles.Add(fullName);
-                    vehicleCount++;
+                    if (Initialize(vi))
+                    {
+                        loadedVehicles.Add(fullName);
+                        vehicleCount++;
+                    }
                 }
             }
             finally
@@ -339,15 +431,15 @@ namespace LoadingScreenModTest
             }
         }
 
-        void Initialize<T>(T info) where T : PrefabInfo
+        bool Initialize<T>(T info) where T : PrefabInfo
         {
+
             string fullName = info.gameObject.name;
             string brokenAssets = LoadingManager.instance.m_brokenAssets;
             PrefabCollection<T>.InitializePrefabs("Custom Assets", info, null);
             LoadingManager.instance.m_brokenAssets = brokenAssets;
 
-            if (CustomDeserializer.FindLoaded<T>(fullName) == null)
-                throw new Exception(string.Concat(typeof(T).Name, " ", fullName, " failed"));
+            return CustomDeserializer.FindLoaded<T>(fullName) == null;
         }
 
         static void RemoveSkipped(DistrictStyle style)
