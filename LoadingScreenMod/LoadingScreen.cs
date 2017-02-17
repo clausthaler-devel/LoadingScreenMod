@@ -45,7 +45,7 @@ namespace LoadingScreenModTest
 
         internal SimpleProfilerSource SimulationSource => texts != null && texts.Length >= 3 ? texts[2].source as SimpleProfilerSource : null;
         internal DualProfilerSource DualSource => texts != null && texts.Length >= 1 ? texts[0].source as DualProfilerSource : null;
-        internal LineSource LoaderSource => texts != null && texts.Length >= 4 ? texts[3].source as LineSource: null;
+        internal LineSource LoaderSource => texts != null && texts.Length >= 4 ? texts[3].source as LineSource : null;
 
         private LoadingScreen()
         {
@@ -218,70 +218,80 @@ namespace LoadingScreenModTest
             LoadingScreen inst = instance;
 
             if (inst.imageLoaded)
-            {
-                Texture2D texture2D = inst.imageMaterial.mainTexture as Texture2D;
-                float num = texture2D != null ? (float) texture2D.width / (float) texture2D.height : 1f;
-                float num2 = 2f * inst.imageScale;
-
-                if (inst.imageMaterial.SetPass(0))
-                    Graphics.DrawMeshNow(inst.imageMesh, Matrix4x4.TRS(new Vector3(0f, 0f, 10f), Quaternion.identity, new Vector3(num2 * num, num2, num2)));
-            }
+                PostRenderImage(inst);
 
             if (inst.animationLoaded)
-            {
-                Quaternion q = Quaternion.AngleAxis(inst.timer * rotationSpeed, Vector3.back);
-                inst.animationMaterial.color = new Color(1.0f, 0.8f, 0.7f, 1f);
-                Mesh amesh = inst.animationMesh;
-
-                if (inst.animationMaterial.SetPass(0))
-                    Graphics.DrawMeshNow(amesh, Matrix4x4.TRS(new Vector3(0f, -0.04f, 10f), q, new Vector3(animationScale, animationScale, animationScale)));
-
-                Vector3 pos = new Vector3(0f, -0.20f, 10f);
-                Vector3 s = new Vector3(animationScale * 2f, animationScale * 0.125f, animationScale);
-                inst.barBGMaterial.color = new Color(1f, 1f, 1f, 1f);
-
-                if (inst.barBGMaterial.SetPass(0))
-                    Graphics.DrawMeshNow(amesh, Matrix4x4.TRS(pos, Quaternion.identity, s));
-
-                s.x *= 0.9875f; s.y *= 0.8f;
-                pos.x -= s.x * (1f - inst.progress) * 0.5f;
-                s.x *= inst.progress;
-                inst.barFGMaterial.color = new Color(1f, 1f, 1f, 1f);
-
-                if (inst.barFGMaterial.SetPass(0))
-                    Graphics.DrawMeshNow(amesh, Matrix4x4.TRS(pos, Quaternion.identity, s));
-            }
+                PostRenderAnimationLoaded(inst);
 
             if (inst.imageLoaded && inst.fontLoaded)
-            {
-                if (inst.bgLoaded && inst.bgMaterial.SetPass(0))
-                    Graphics.DrawMeshNow(inst.bgMesh, Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one));
-
-                float now = Time.time;
-
-                if (now - inst.meshTime >= progressInterval || inst.meshUpdates < 3)
-                {
-                    inst.meshTime = now;
-                    inst.meshUpdates++;
-
-                    foreach (Text text in inst.texts)
-                        text.UpdateText();
-                }
-
-                if (inst.textMaterial.SetPass(0))
-                    foreach (Text text in inst.texts)
-                        Graphics.DrawMeshNow(text.mesh, Matrix4x4.TRS(text.pos, Quaternion.identity, text.Scale));
-            }
+                PostRenderFont(inst);
         }
+
+        void PostRenderImage(LoadingScreen inst)
+        {
+            Texture2D texture2D = inst.imageMaterial.mainTexture as Texture2D;
+            float num = texture2D != null ? (float) texture2D.width / (float) texture2D.height : 1f;
+            float num2 = 2f * inst.imageScale;
+
+            if (inst.imageMaterial.SetPass(0))
+                Graphics.DrawMeshNow(inst.imageMesh, Matrix4x4.TRS(new Vector3(0f, 0f, 10f), Quaternion.identity, new Vector3(num2 * num, num2, num2)));
+        }
+
+        void PostRenderAnimationLoaded(LoadingScreen inst)
+        {
+            Quaternion q = Quaternion.AngleAxis(inst.timer * rotationSpeed, Vector3.back);
+            inst.animationMaterial.color = new Color(1.0f, 0.8f, 0.7f, 1f);
+            Mesh amesh = inst.animationMesh;
+
+            if (inst.animationMaterial.SetPass(0))
+                Graphics.DrawMeshNow(amesh, Matrix4x4.TRS(new Vector3(0f, -0.04f, 10f), q, new Vector3(animationScale, animationScale, animationScale)));
+
+            Vector3 pos = new Vector3(0f, -0.20f, 10f);
+            Vector3 s = new Vector3(animationScale * 2f, animationScale * 0.125f, animationScale);
+            inst.barBGMaterial.color = new Color(1f, 1f, 1f, 1f);
+
+            if (inst.barBGMaterial.SetPass(0))
+                Graphics.DrawMeshNow(amesh, Matrix4x4.TRS(pos, Quaternion.identity, s));
+
+            s.x *= 0.9875f; s.y *= 0.8f;
+            pos.x -= s.x * (1f - inst.progress) * 0.5f;
+            s.x *= inst.progress;
+            inst.barFGMaterial.color = new Color(1f, 1f, 1f, 1f);
+
+            if (inst.barFGMaterial.SetPass(0))
+                Graphics.DrawMeshNow(amesh, Matrix4x4.TRS(pos, Quaternion.identity, s));
+        }
+
+        void PostRenderFont(LoadingScreen inst)
+        {
+            if (inst.bgLoaded && inst.bgMaterial.SetPass(0))
+                Graphics.DrawMeshNow(inst.bgMesh, Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one));
+
+            float now = Time.time;
+
+            if (now - inst.meshTime >= progressInterval || inst.meshUpdates < 3)
+            {
+                inst.meshTime = now;
+                inst.meshUpdates++;
+
+                foreach (Text text in inst.texts)
+                    text.UpdateText();
+            }
+
+            if (inst.textMaterial.SetPass(0))
+                foreach (Text text in inst.texts)
+                    Graphics.DrawMeshNow(text.mesh, Matrix4x4.TRS(text.pos, Quaternion.identity, text.Scale));
+        }
+
 
         static Mesh CreateQuads()
         {
             List<Vector3> vertices = new List<Vector3>(16);
             List<int> triangles = new List<int>(24);
-            CreateQuad(-1.26f,  0.75f, 0.77f, 1.50f, vertices, triangles);
+            CreateQuad(-1.26f, 0.75f, 0.77f, 1.50f, vertices, triangles);
             CreateQuad(-0.38f, -0.47f, 0.75f, 0.28f, vertices, triangles);
-            CreateQuad(-0.17f,  0.75f, 0.34f, 0.20f, vertices, triangles);
-            CreateQuad(-0.17f,  0.43f, 0.34f, 0.26f, vertices, triangles);
+            CreateQuad(-0.17f, 0.75f, 0.34f, 0.20f, vertices, triangles);
+            CreateQuad(-0.17f, 0.43f, 0.34f, 0.26f, vertices, triangles);
             Mesh mesh = new Mesh();
             mesh.name = "BG Quads";
             mesh.vertices = vertices.ToArray();
@@ -304,8 +314,7 @@ namespace LoadingScreenModTest
         {
             Shader shader = Shader.Find("Custom/Loading/AlphaBlend");
 
-            return new Material(shader)
-            {
+            return new Material(shader) {
                 name = "BG Material",
                 color = color,
                 hideFlags = HideFlags.HideAndDontSave
