@@ -132,7 +132,7 @@ namespace LoadingScreenModTest
             AsyncTask task = Singleton<SimulationManager>.instance.AddAction("Loading", (IEnumerator) Util.Invoke(LoadingManager.instance, "LoadSimulationData", asset, ngs));
             LoadSaveStatus.activeTask = task;
 
-            it = LoadLevelFromMenu(task, ngs, asset);
+            it = LoadFromMenu(task, ngs, asset);
             while (it.MoveNext()) yield return it.Current;
 
             it = LoadSceneFromMenu(task, ngs, playerScene, uiScene);
@@ -154,7 +154,7 @@ namespace LoadingScreenModTest
             }
         }
 
-        IEnumerator LoadLevelFromMenu(AsyncTask task, SimulationMetaData ngs, Package.Asset asset)
+        IEnumerator LoadFromMenu(AsyncTask task, SimulationMetaData ngs, Package.Asset asset)
         {
             if (LoadingManager.instance.m_loadedEnvironment == null) // loading from main menu
             {
@@ -164,12 +164,12 @@ namespace LoadingScreenModTest
             }
             else // loading from in-game (the pause menu)
             {
-                IEnumerator it = LoadLevelFromPauseMenu(task, ngs, asset);
+                IEnumerator it = LoadFromPauseMenu(task, ngs, asset);
                 while (it.MoveNext()) yield return it.Current;
             }
         }
 
-        IEnumerator LoadLevelFromPauseMenu(AsyncTask task, SimulationMetaData ngs, Package.Asset asset)
+        IEnumerator LoadFromPauseMenu(AsyncTask task, SimulationMetaData ngs, Package.Asset asset)
         {
             while (!LoadingManager.instance.m_metaDataLoaded && !task.completedOrFailed) // IL_139
                 yield return null;
@@ -246,44 +246,91 @@ namespace LoadingScreenModTest
 
         IEnumerator LoadSceneFromMainMenu(AsyncTask task, SimulationMetaData ngs, string playerScene, string uiScene)
         {
-            AsyncOperation op;
+            IEnumerator it;
             knownFastLoads.Clear();
             fullLoadTime = DateTime.Now;
             loadingLock = Util.Get(LoadingManager.instance, "m_loadingLock");
-            string scene;
-            int i;
 
             if (!string.IsNullOrEmpty(playerScene))
             {
-                LoadingManager.instance.m_loadingProfilerScenes.BeginLoading(playerScene);
-                op = SceneManager.LoadSceneAsync(playerScene, LoadSceneMode.Single);
-
-                while (!op.isDone) // IL_2FF
-                {
-                    LoadingManager.instance.SetSceneProgress(op.progress * 0.01f);
-                    yield return null;
-                }
-
-                LoadingManager.instance.m_loadingProfilerScenes.EndLoading();
+                it = LoadPlayerScene(playerScene);
+                while (it.MoveNext()) yield return it.Current;
             }
 
             while (!LoadingManager.instance.m_metaDataLoaded && !task.completedOrFailed) // IL_33C
                 yield return null;
 
             if (SimulationManager.instance.m_metaData == null)
-            {
-                SimulationManager.instance.m_metaData = new SimulationMetaData();
-                SimulationManager.instance.m_metaData.m_environment = "Sunny";
-                SimulationManager.instance.m_metaData.Merge(ngs);
-            }
+                SetDefaultMetaData(ngs);
 
             Util.InvokeVoid(LoadingManager.instance, "MetaDataLoaded"); // OnCreated if loading from the main manu
+
+
+            it = LoadLevels();
+            while (it.MoveNext()) yield return it.Current;
+
+            if (skipAny)
+                LoadingManager.instance.QueueLoadingAction(PrefabLoader.DestroySkipped());
+
+            it = WaitForEmptyThreadQueue();
+            while (it.MoveNext()) yield return it.Current;
+
+            QueueLoadingActions();
+
+            simulationFailed = HasFailed(task);
+
+            // Performance optimization: do not load scenes while custom assets are loading.
+            while (!AssetLoader.instance.hasFinished)
+                yield return null;
+
+            it = LoadEnvironmentScene();
+            while (it.MoveNext()) yield return it.Current;
+
+            if (!simulationFailed)
+                simulationFailed = HasFailed(task);
+
+            if (!string.IsNullOrEmpty(uiScene)) // IL_C67
+            {
+                it = LoadUiScene(uiScene);
+                while (it.MoveNext()) yield return it.Current;
+            }
+
+            LoadingManager.instance.m_loadedEnvironment = SimulationManager.instance.m_metaData.m_environment; // IL_CFE
+            LoadingManager.instance.m_loadedMapTheme = SimulationManager.instance.m_metaData.m_MapThemeMetaData?.name;
+        }
+
+        IEnumerator LoadPlayerScene(string playerScene)
+        {
+            AsyncOperation op;
+
+            LoadingManager.instance.m_loadingProfilerScenes.BeginLoading(playerScene);
+            op = SceneManager.LoadSceneAsync(playerScene, LoadSceneMode.Single);
+
+            while (!op.isDone) // IL_2FF
+            {
+                LoadingManager.instance.SetSceneProgress(op.progress * 0.01f);
+                yield return null;
+            }
+
+            //OnSceneLoaded( playerScene );
+            LoadingManager.instance.m_loadingProfilerScenes.EndLoading();
+        }
+
+        void SetDefaultMetaData(SimulationMetaData ngs)
+        {
+            SimulationManager.instance.m_metaData = new SimulationMetaData();
+            SimulationManager.instance.m_metaData.m_environment = "Sunny";
+            SimulationManager.instance.m_metaData.Merge(ngs);
+        }
+
+        IEnumerator LoadLevels()
+        {
             KeyValuePair<string, float>[] levels = SetLevels();
             float currentProgress = 0.10f;
 
-            for (i = 0 ; i < levels.Length ; i++)
+            for (int i = 0 ; i < levels.Length ; i++)
             {
-                scene = levels[i].Key;
+                string scene = levels[i].Key;
 
                 if (string.IsNullOrEmpty(scene)) // just a marker to stop prefab skipping
                 {
@@ -292,7 +339,7 @@ namespace LoadingScreenModTest
                 }
 
                 LoadingManager.instance.m_loadingProfilerScenes.BeginLoading(scene);
-                op = SceneManager.LoadSceneAsync(scene, LoadSceneMode.Additive);
+                AsyncOperation op = SceneManager.LoadSceneAsync(scene, LoadSceneMode.Additive);
 
                 while (!op.isDone)
                 {
@@ -303,10 +350,10 @@ namespace LoadingScreenModTest
                 LoadingManager.instance.m_loadingProfilerScenes.EndLoading();
                 currentProgress = levels[i].Value;
             }
+        }
 
-            if (skipAny)
-                LoadingManager.instance.QueueLoadingAction(PrefabLoader.DestroySkipped());
-
+        IEnumerator WaitForEmptyThreadQueue()
+        {
             Queue<IEnumerator> mainThreadQueue = (Queue<IEnumerator>) queueField.GetValue(LoadingManager.instance);
             Util.DebugPrint("mainThreadQueue len", mainThreadQueue.Count, "at", Profiling.Millis);
 
@@ -314,6 +361,7 @@ namespace LoadingScreenModTest
             // in their NetInfo Installer. Everything goes fine if LoadCustomContent() below is NOT queued before the
             // said Installers have finished. This is just a workaround for the issue. The actual fix should be in
             // the Installers. Notice that the built-in loader of the game is also affected.
+            int i;
 
             do
             {
@@ -329,24 +377,25 @@ namespace LoadingScreenModTest
             while (i > 0);
 
             Util.DebugPrint("mainThreadQueue len 0 at", Profiling.Millis);
+        }
 
+        void QueueLoadingActions()
+        {
             LoadingManager.instance.QueueLoadingAction(AssetLoader.instance.LoadCustomContent());
             RenderManager.Managers_CheckReferences();
             LoadingManager.instance.QueueLoadingAction((IEnumerator) Util.Invoke(LoadingManager.instance, "EssentialScenesLoaded"));
             RenderManager.Managers_InitRenderData();
             LoadingManager.instance.QueueLoadingAction((IEnumerator) Util.Invoke(LoadingManager.instance, "RenderDataReady"));
-            simulationFailed = HasFailed(task);
+        }
 
-            // Performance optimization: do not load scenes while custom assets are loading.
-            while (!AssetLoader.instance.hasFinished)
-                yield return null;
-
-            scene = SimulationManager.instance.m_metaData.m_environment + "Properties";
+        IEnumerator LoadEnvironmentScene()
+        {
+            string scene = SimulationManager.instance.m_metaData.m_environment + "Properties";
 
             if (!string.IsNullOrEmpty(scene))
             {
                 LoadingManager.instance.m_loadingProfilerScenes.BeginLoading(scene);
-                op = SceneManager.LoadSceneAsync(scene, LoadSceneMode.Additive);
+                AsyncOperation op = SceneManager.LoadSceneAsync( scene, LoadSceneMode.Additive );
 
                 while (!op.isDone) // IL_C47
                 {
@@ -355,27 +404,23 @@ namespace LoadingScreenModTest
                 }
 
                 LoadingManager.instance.m_loadingProfilerScenes.EndLoading();
+                LoadingManager.instance.m_loadedEnvironment = SimulationManager.instance.m_metaData.m_environment; // IL_CFE
             }
+        }
 
-            if (!simulationFailed)
-                simulationFailed = HasFailed(task);
+        IEnumerator LoadUiScene(string uiScene)
+        {
+            LoadingManager.instance.m_loadingProfilerScenes.BeginLoading(uiScene);
+            AsyncOperation op = SceneManager.LoadSceneAsync( uiScene, LoadSceneMode.Additive );
 
-            if (!string.IsNullOrEmpty(uiScene)) // IL_C67
+            while (!op.isDone) // IL_CDE
             {
-                LoadingManager.instance.m_loadingProfilerScenes.BeginLoading(uiScene);
-                op = SceneManager.LoadSceneAsync(uiScene, LoadSceneMode.Additive);
-
-                while (!op.isDone) // IL_CDE
-                {
-                    LoadingManager.instance.SetSceneProgress(0.90f + op.progress * 0.08f);
-                    yield return null;
-                }
-
-                LoadingManager.instance.m_loadingProfilerScenes.EndLoading();
+                LoadingManager.instance.SetSceneProgress(0.90f + op.progress * 0.08f);
+                yield return null;
             }
 
-            LoadingManager.instance.m_loadedEnvironment = SimulationManager.instance.m_metaData.m_environment; // IL_CFE
-            LoadingManager.instance.m_loadedMapTheme = SimulationManager.instance.m_metaData.m_MapThemeMetaData?.name;
+            //OnSceneLoaded( uiScene );
+            LoadingManager.instance.m_loadingProfilerScenes.EndLoading();
         }
 
         IEnumerator LoadSceneFromPauseMenu()
@@ -393,7 +438,6 @@ namespace LoadingScreenModTest
 
         IEnumerator PostprocessLoadLevel(AsyncTask task, SimulationMetaData ngs, Package.Asset asset, String playerScene)
         {
-
             LoadingManager.instance.SetSceneProgress(1f); // IL_DBF
 
             if (!simulationFailed)
@@ -423,6 +467,8 @@ namespace LoadingScreenModTest
             Util.DebugPrint("Waiting at", Profiling.Millis);
             AssetLoader.instance.PrintMem();
         }
+
+
 
         // Loading complete.
         public IEnumerator LoadingComplete()
