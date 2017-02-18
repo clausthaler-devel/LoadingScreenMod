@@ -46,8 +46,7 @@ namespace LoadingScreenModTest
         public Coroutine LoadLevel(Package.Asset asset, string playerScene, string uiScene, SimulationMetaData ngs)
         {
             LoadingManager lm = Singleton<LoadingManager>.instance;
-            bool activated = ngs.m_updateMode == SimulationManager.UpdateMode.LoadGame || ngs.m_updateMode == SimulationManager.UpdateMode.NewGameFromMap ||
-                ngs.m_updateMode == SimulationManager.UpdateMode.NewGameFromScenario || Input.GetKey(KeyCode.LeftControl);
+            bool activated = checkActivation( ngs );
             instance.simulationFailed = false;
             instance.skipAny = Settings.settings.SkipAny;
 
@@ -57,38 +56,9 @@ namespace LoadingScreenModTest
                     lm.m_LoadingWrapper.OnLevelUnloading(); // OnLevelUnloading
 
                 if (activated)
-                {
-                    Util.DebugPrint("Options:", Settings.settings.loadEnabled, Settings.settings.loadUsed, Settings.settings.shareTextures, Settings.settings.shareMaterials,
-                        Settings.settings.shareMeshes, Settings.settings.reportAssets, Settings.settings.skipResLo, Settings.settings.skipResHi, Settings.settings.skipComLo,
-                        Settings.settings.skipComHi, Settings.settings.skipIndGen, Settings.settings.skipIndSpe, Settings.settings.skipComSpe, Settings.settings.skipOffice,
-                        Settings.settings.skipThese, Settings.settings.applyToEuropean);
+                    SetupLoadLevel(asset?.name ?? "NewGame");
 
-                    LoadingManager.instance.SetSceneProgress(0f);
-                    instance.cityName = asset?.name ?? "NewGame";
-                    Profiling.Init();
-                    CustomDeserializer.Create();
-                    Fixes.Create().Deploy();
-                    AssetLoader.Create().Setup();
-                    LoadingScreen.Create().Setup();
-                }
-
-                lm.LoadingAnimationComponent.enabled = true;
-                lm.m_currentlyLoading = true;
-                lm.m_metaDataLoaded = false;
-                lm.m_simulationDataLoaded = false;
-                lm.m_loadingComplete = false;
-                lm.m_renderDataReady = false;
-                lm.m_essentialScenesLoaded = false;
-                lm.m_brokenAssets = string.Empty;
-                Util.Set(lm, "m_sceneProgress", 0f);
-                Util.Set(lm, "m_simulationProgress", 0f);
-
-                if (activated)
-                    Profiling.Start();
-
-                lm.m_loadingProfilerMain.Reset();
-                lm.m_loadingProfilerSimulation.Reset();
-                lm.m_loadingProfilerScenes.Reset();
+                StartLoadLevel(lm, activated);
 
                 IEnumerator iter = activated ? instance.LoadLevelCoroutine(asset, playerScene, uiScene, ngs) :
                     (IEnumerator) Util.Invoke(lm, "LoadLevelCoroutine", asset, playerScene, uiScene, ngs);
@@ -98,6 +68,57 @@ namespace LoadingScreenModTest
 
             return null;
         }
+
+        bool checkActivation(SimulationMetaData ngs)
+        {
+            return
+                ngs.m_updateMode == SimulationManager.UpdateMode.LoadGame ||
+                ngs.m_updateMode == SimulationManager.UpdateMode.NewGameFromMap ||
+                ngs.m_updateMode == SimulationManager.UpdateMode.NewGameFromScenario ||
+                Input.GetKey(KeyCode.LeftControl);
+        }
+
+        void SetupLoadLevel(string cityName)
+        {
+            Util.DebugPrint("Options:", Settings.settings.loadEnabled, Settings.settings.loadUsed, Settings.settings.shareTextures, Settings.settings.shareMaterials,
+                Settings.settings.shareMeshes, Settings.settings.reportAssets, Settings.settings.skipResLo, Settings.settings.skipResHi, Settings.settings.skipComLo,
+                Settings.settings.skipComHi, Settings.settings.skipIndGen, Settings.settings.skipIndSpe, Settings.settings.skipComSpe, Settings.settings.skipOffice,
+                Settings.settings.skipThese, Settings.settings.applyToEuropean);
+
+            LoadingManager.instance.SetSceneProgress(0f);
+            instance.cityName = cityName;
+            Profiling.Init();
+            CustomDeserializer.Create();
+            Fixes.Create().Deploy();
+
+            AssetLoader.Create().Setup();
+            LoadingScreen.Create().Setup();
+        }
+
+        void StartLoadLevel(LoadingManager lm, bool activated)
+        {
+            lm.LoadingAnimationComponent.enabled = true;
+            lm.m_currentlyLoading = true;
+            lm.m_metaDataLoaded = false;
+            lm.m_simulationDataLoaded = false;
+            lm.m_loadingComplete = false;
+            lm.m_renderDataReady = false;
+            lm.m_essentialScenesLoaded = false;
+            lm.m_brokenAssets = string.Empty;
+            Util.Set(lm, "m_sceneProgress", 0f);
+            Util.Set(lm, "m_simulationProgress", 0f);
+
+            if (activated)
+                Profiling.Start();
+
+            lm.m_loadingProfilerMain.Reset();
+            lm.m_loadingProfilerSimulation.Reset();
+            lm.m_loadingProfilerScenes.Reset();
+
+            //OnStartLoading( lm, activated );
+        }
+
+
 
         public IEnumerator LoadLevelCoroutine(Package.Asset asset, string playerScene, string uiScene, SimulationMetaData ngs)
         {
