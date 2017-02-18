@@ -138,7 +138,7 @@ namespace LoadingScreenModTest
 
         void PreprocessDistrictStyles(out FastList<DistrictStyleMetaData> districtStyleMetaDatas, out HashSet<string> styleBuildings, out List<DistrictStyle> districtStyles, out FastList<Package> districtStylePackages)
         {
-            int i, j;
+            int i;
             DistrictStyleMetaData districtStyleMetaData;
             DistrictStyle districtStyle;
             districtStyles = new List<DistrictStyle>();
